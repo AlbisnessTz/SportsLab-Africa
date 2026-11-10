@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient, type User } from '@supabase/supabase-js';
+import { mapAuthUserToProfile } from './authProfile';
 import type { UserProfile } from '../types';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
@@ -21,18 +22,8 @@ export const supabase: SupabaseClient | null = isSupabaseAuthConfigured
   : null;
 
 export function mapSupabaseUserToProfile(user: User): Partial<UserProfile> {
-  const metadata = user.user_metadata ?? {};
-  const nameValue = metadata.full_name ?? metadata.name ?? metadata.display_name;
-  const name = typeof nameValue === 'string' && nameValue.trim()
-    ? nameValue.trim()
-    : (user.email?.split('@')[0] || 'Sports Supporter');
-
-  return {
-    name,
-    email: user.email ?? '',
-    isAuthenticated: true,
-    // Preserve app preferences/bookmarks elsewhere; these are account defaults only.
-  };
+  // Preserve app preferences/bookmarks elsewhere; these are account defaults only.
+  return mapAuthUserToProfile(user);
 }
 
 function requireSupabase(): SupabaseClient {

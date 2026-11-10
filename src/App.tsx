@@ -46,7 +46,7 @@ export default function App() {
             {vm.activeTab === 'news' && <NewsScreen news={vm.filteredNews} savedArticles={vm.userProfile.savedArticles} onToggleSaveArticle={vm.toggleSaveArticle} selectedArticle={vm.selectedArticle} onSelectArticle={vm.setSelectedArticle} />}
             {vm.activeTab === 'stadiums' && <StadiumsScreen stadiums={vm.stadiums} onSelectStadium={vm.setSelectedStadium} />}
             {vm.activeTab === 'history' && <HistoryScreen onSelectTab={vm.setActiveTab} />}
-            {vm.activeTab === 'profile' && <ProfileScreen userProfile={vm.userProfile} onUpdateProfile={vm.updateProfile} onRegister={vm.handleRegister} onLogin={vm.handleLogin} onLogout={vm.handleLogout} teams={vm.teams} matches={vm.matches} news={vm.news} onSelectMatch={vm.setSelectedMatch} onSelectArticle={vm.setSelectedArticle} onToggleSaveMatch={vm.toggleSaveMatch} onToggleSaveArticle={vm.toggleSaveArticle} onSelectTab={vm.setActiveTab} />}
+            {vm.activeTab === 'profile' && <ProfileScreen userProfile={vm.userProfile} onUpdateProfile={vm.updateProfile} onRegister={vm.handleRegister} onLogin={vm.handleLogin} onGoogleSignIn={vm.authConfigured ? vm.handleGoogleSignIn : undefined} onLogout={vm.handleLogout} teams={vm.teams} matches={vm.matches} news={vm.news} onSelectMatch={vm.setSelectedMatch} onSelectArticle={vm.setSelectedArticle} onToggleSaveMatch={vm.toggleSaveMatch} onToggleSaveArticle={vm.toggleSaveArticle} onSelectTab={vm.setActiveTab} />}
             {vm.activeTab === 'settings' && <SettingsScreen settings={vm.appSettings} onUpdateSettings={vm.updateSettings} onSelectTab={vm.setActiveTab} />}
           </main>
           <BottomNav activeTab={vm.activeTab} onSelectTab={vm.setActiveTab} />

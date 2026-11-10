@@ -16,9 +16,14 @@ SportsLab Africa has a Supabase Auth service layer prepared, but authentication 
 
 ## Current status and limitations
 
-- `src/services/supabaseAuthService.ts` provides a browser client guarded by environment configuration, email registration/login, Google OAuth initiation, sign-out, current-user retrieval, auth-state subscription, and user metadata mapping.
-- This is an integration foundation only. Existing ProfileScreen and view-model still use local browser storage and have not yet been migrated to this service.
-- Account profile fields such as favorites/bookmarks require a deliberate persistence strategy and access-controlled database tables before they sync across devices.
+- `src/services/supabaseAuthService.ts` provides the browser client (guarded by environment configuration), email registration/login, Google OAuth initiation, sign-out, current-user retrieval and an auth-state subscription.
+- **The Profile screen is now connected.** When `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are set, `useAppViewModel` registers, signs in and signs out through Supabase, restores the session on reload, and shows "Continue with Google" on the sign-in form.
+- Without those variables the app keeps the local prototype login (see `AUTHENTICATION_STATUS.md`) and hides the Google button, so nothing pretends to authenticate.
+- With Supabase configured, passwords are never written to browser storage, the prototype user directory is no longer written, and passwords left over from the prototype are stripped on startup (profiles and bookmarks are kept).
+- A real account must be backed by a live Supabase session. Only email-less local guests stay signed in from browser storage alone.
+- If email confirmation is enabled in Supabase, registration shows a "check your email" message and the person signs in after confirming.
+- Switching to a different account on the same browser starts a clean local profile, so saved items never leak between accounts.
+- **Not yet verified end-to-end against a real Supabase project.** Unit tests cover the profile/merge/storage logic, but the full flow (registration, confirmation email, login, Google redirect, sign-out) still needs a test run with real project credentials.
+- Favourites, bookmarks and votes are still stored locally per browser. Syncing them across devices needs access-controlled tables with Row Level Security first.
 - Google OAuth will not work until provider credentials and redirect URLs are configured.
-- Do not migrate or remove the existing prototype login until the real sign-in flows and migration behavior are tested.
 - The public anon/publishable key is not a secret, but it is not an authorization mechanism; configure Row Level Security for any user data stored in Supabase.

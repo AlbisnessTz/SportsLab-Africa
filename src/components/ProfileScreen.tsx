@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { UserProfile, Team, Match, NewsArticle, TabType } from '../types';
+import type { AuthActionResult } from '../services/authProfile';
 import { MATCHES_DATA, NEWS_DATA } from '../data/mockData';
 import { 
   User, 
@@ -33,9 +34,11 @@ import {
 interface ProfileScreenProps {
   userProfile: UserProfile;
   onUpdateProfile: (updated: Partial<UserProfile>) => void;
-  onRegister?: (newUser: UserProfile) => UserProfile;
-  onLogin?: (email: string, pass: string) => UserProfile;
-  onLogout?: () => void;
+  onRegister?: (newUser: UserProfile) => Promise<AuthActionResult>;
+  onLogin?: (email: string, pass: string) => Promise<AuthActionResult>;
+  /** Provided only when a trusted identity provider is configured. */
+  onGoogleSignIn?: () => Promise<AuthActionResult>;
+  onLogout?: () => void | Promise<void>;
   teams: Team[];
   matches?: Match[];
   news?: NewsArticle[];
@@ -67,6 +70,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   onUpdateProfile,
   onRegister,
   onLogin,
+  onGoogleSignIn,
   onLogout,
   teams,
   matches,
@@ -108,6 +112,8 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
 
   // Status feedback
   const [authError, setAuthError] = useState<string | null>(null);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
+  const [authBusy, setAuthBusy] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
 
   // Hidden File Input Ref
@@ -151,9 +157,11 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   };
 
   // Handle Registration Submit
-  const handleRegisterSubmit = (e: React.FormEvent) => {
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (authBusy) return;
     setAuthError(null);
+    setAuthNotice(null);
     if (!regName.trim() || !regEmail.trim() || !regPassword) {
       setAuthError('Please complete all required fields.');
       return;
@@ -173,9 +181,17 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
       savedArticles: []
     };
 
+    setAuthBusy(true);
     try {
       if (onRegister) {
-        onRegister(newUser);
+        const result = await onRegister(newUser);
+        if (result.status === 'confirmation-required') {
+          setAuthNotice(result.message);
+          setLoginEmail(newUser.email);
+          setRegPassword('');
+          setAuthMode('login');
+          return;
+        }
       } else {
         onUpdateProfile({ ...newUser, isAuthenticated: true });
       }
@@ -183,21 +199,43 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
       setTimeout(() => setSavedSuccess(false), 3000);
     } catch (err: any) {
       setAuthError(err.message || 'Failed to register account.');
+    } finally {
+      setAuthBusy(false);
     }
   };
 
   // Handle Login Submit
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (authBusy) return;
     setAuthError(null);
+    setAuthNotice(null);
+    setAuthBusy(true);
     try {
       if (onLogin) {
-        onLogin(loginEmail, loginPassword);
+        await onLogin(loginEmail.trim(), loginPassword);
+        setLoginPassword('');
       } else {
         onUpdateProfile({ isAuthenticated: true });
       }
     } catch (err: any) {
       setAuthError(err.message || 'Invalid credentials.');
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  // Handle Google sign-in (OAuth redirect handled by the identity provider)
+  const handleGoogleClick = async () => {
+    if (!onGoogleSignIn || authBusy) return;
+    setAuthError(null);
+    setAuthNotice(null);
+    setAuthBusy(true);
+    try {
+      await onGoogleSignIn();
+    } catch (err: any) {
+      setAuthError(err.message || 'Google sign-in failed.');
+      setAuthBusy(false);
     }
   };
 
@@ -277,6 +315,14 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           </div>
         )}
 
+        {/* Info Banner (e.g. email confirmation required) */}
+        {authNotice && (
+          <div role="status" className="p-3 bg-emerald-100 text-emerald-900 dark:bg-emerald-950/80 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800 rounded-xl text-xs font-bold flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span>{authNotice}</span>
+          </div>
+        )}
+
         {/* LOGIN FORM */}
         {authMode === 'login' && (
           <form onSubmit={handleLoginSubmit} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-emerald-800/80 rounded-2xl p-4 shadow-sm space-y-4">
@@ -315,10 +361,22 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
 
             <button
               type="submit"
-              className="w-full py-3 rounded-xl bg-amber-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 hover:bg-amber-300 shadow-md active:scale-[0.98] transition-all"
+              disabled={authBusy}
+              className="w-full py-3 rounded-xl bg-amber-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 hover:bg-amber-300 shadow-md active:scale-[0.98] transition-all disabled:opacity-60"
             >
-              <LogIn className="w-4 h-4" /> Sign In to SportsLab Africa
+              <LogIn className="w-4 h-4" /> {authBusy ? 'Signing in…' : 'Sign In to SportsLab Africa'}
             </button>
+
+            {onGoogleSignIn && (
+              <button
+                type="button"
+                disabled={authBusy}
+                onClick={handleGoogleClick}
+                className="w-full py-2.5 rounded-xl bg-white dark:bg-slate-800 text-slate-800 dark:text-white font-bold text-xs border border-slate-300 dark:border-slate-700 flex items-center justify-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all disabled:opacity-60"
+              >
+                Continue with Google
+              </button>
+            )}
 
             {/* Quick Sign In Button */}
             <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
@@ -539,9 +597,10 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
 
             <button
               type="submit"
-              className="w-full py-3 rounded-xl bg-amber-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 hover:bg-amber-300 shadow-md active:scale-[0.98] transition-all"
+              disabled={authBusy}
+              className="w-full py-3 rounded-xl bg-amber-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 hover:bg-amber-300 shadow-md active:scale-[0.98] transition-all disabled:opacity-60"
             >
-              <UserPlus className="w-4 h-4" /> Create Account
+              <UserPlus className="w-4 h-4" /> {authBusy ? 'Creating account…' : 'Create Account'}
             </button>
           </form>
         )}

@@ -16,9 +16,29 @@ import {
   NEWS_DATA, 
   STADIUMS_DATA 
 } from '../data/mockData';
-import { StorageService } from '../services/storageService';
+import { DEFAULT_PROFILE, StorageService } from '../services/storageService';
+import {
+  isSupabaseAuthConfigured,
+  onSupabaseAuthStateChange,
+  registerWithEmail,
+  signInWithEmail,
+  signInWithGoogle,
+  signOutSupabase,
+} from '../services/supabaseAuthService';
+import {
+  baseProfileFor,
+  describeAuthError,
+  mergeAuthenticatedUser,
+  signedOutProfile,
+  type AuthActionResult,
+} from '../services/authProfile';
 import { checkLiveApiHealth, type LiveApiConnectionState } from '../services/liveSportsService';
 import { fetchLiveFootballMatches, type LiveFootballFeedResult } from '../services/liveFootballFeedService';
+
+// With a trusted identity provider configured, never write passwords or the prototype
+// user directory to browser storage. Without one, the local prototype flow stays in place.
+const persistProfile = (profile: UserProfile) =>
+  isSupabaseAuthConfigured ? StorageService.saveProfileLocalOnly(profile) : StorageService.saveProfile(profile);
 
 export function useAppViewModel() {
   const [activeTab, setActiveTab] = useState<TabType>('home');
@@ -32,7 +52,14 @@ export function useAppViewModel() {
   });
 
   // User Profile & Settings state
-  const [userProfile, setUserProfile] = useState<UserProfile>(() => StorageService.getProfile());
+  const [userProfile, setUserProfile] = useState<UserProfile>(() => {
+    if (isSupabaseAuthConfigured) StorageService.stripStoredPasswords();
+    const stored = StorageService.getProfile();
+    if (!isSupabaseAuthConfigured) return stored;
+    // A real account must be proven by a live Supabase session (restored by the listener below).
+    // Only email-less local guests stay signed in from storage.
+    return stored.email ? signedOutProfile(stored) : { ...stored, password: '' };
+  });
   const [appSettings, setAppSettings] = useState<AppSettings>(() => StorageService.getSettings());
 
   // Matches State (dynamic votes)
@@ -91,29 +118,115 @@ export function useAppViewModel() {
     }
   }, [appSettings.darkMode]);
 
-  // Auth Handlers
-  const handleRegister = useCallback((newUser: UserProfile) => {
-    const registered = StorageService.registerUser(newUser);
-    setUserProfile(registered);
-    return registered;
+  // Keep the profile in step with the Supabase session (sign-in, restore on reload, token refresh, sign-out).
+  useEffect(() => {
+    if (!isSupabaseAuthConfigured) return;
+    const { data } = onSupabaseAuthStateChange((user) => {
+      setUserProfile((prev) => {
+        if (!user) return prev.email ? signedOutProfile(prev) : prev;
+        const next = mergeAuthenticatedUser(prev, user, DEFAULT_PROFILE);
+        StorageService.saveProfileLocalOnly(next);
+        return next;
+      });
+    });
+    return () => data.subscription.unsubscribe();
   }, []);
 
-  const handleLogin = useCallback((email: string, pass: string) => {
-    const loggedIn = StorageService.loginUser(email, pass);
-    setUserProfile(loggedIn);
-    return loggedIn;
+  // Auth Handlers. They throw an Error with a user-safe message on failure.
+  const handleRegister = useCallback(async (newUser: UserProfile): Promise<AuthActionResult> => {
+    if (!isSupabaseAuthConfigured) {
+      const registered = StorageService.registerUser(newUser);
+      setUserProfile(registered);
+      return { status: 'signed-in' };
+    }
+
+    const { password, ...account } = newUser;
+    const { data, error } = await registerWithEmail(account.email, password ?? '', account.name);
+    if (error) throw new Error(describeAuthError(error.message));
+    // To avoid revealing which emails exist, Supabase answers a duplicate sign-up with a user that has no identities.
+    if (data.user && data.user.identities?.length === 0) {
+      throw new Error(describeAuthError('User already registered'));
+    }
+
+    setUserProfile((prev) => {
+      const withPreferences: UserProfile = {
+        ...baseProfileFor(prev, account.email, DEFAULT_PROFILE),
+        name: account.name,
+        email: account.email,
+        country: account.country,
+        language: account.language,
+        favoriteTeamId: account.favoriteTeamId,
+        photoUrl: account.photoUrl,
+        avatarType: account.avatarType,
+        password: '',
+        isAuthenticated: false,
+      };
+      const next = data.session && data.user
+        ? mergeAuthenticatedUser(withPreferences, data.user, DEFAULT_PROFILE)
+        : withPreferences;
+      StorageService.saveProfileLocalOnly(next);
+      return next;
+    });
+
+    if (data.session) return { status: 'signed-in' };
+    return {
+      status: 'confirmation-required',
+      message: 'Account created. Check your email and open the confirmation link, then sign in.',
+    };
   }, []);
 
-  const handleLogout = useCallback(() => {
-    const loggedOut = StorageService.logoutUser();
-    setUserProfile(loggedOut);
+  const handleLogin = useCallback(async (email: string, pass: string): Promise<AuthActionResult> => {
+    if (!isSupabaseAuthConfigured) {
+      const loggedIn = StorageService.loginUser(email, pass);
+      setUserProfile(loggedIn);
+      return { status: 'signed-in' };
+    }
+
+    const { data, error } = await signInWithEmail(email, pass);
+    if (error) throw new Error(describeAuthError(error.message));
+    if (data.user) {
+      const verifiedUser = data.user;
+      setUserProfile((prev) => {
+        const next = mergeAuthenticatedUser(prev, verifiedUser, DEFAULT_PROFILE);
+        StorageService.saveProfileLocalOnly(next);
+        return next;
+      });
+    }
+    return { status: 'signed-in' };
+  }, []);
+
+  const handleGoogleSignIn = useCallback(async (): Promise<AuthActionResult> => {
+    if (!isSupabaseAuthConfigured) {
+      throw new Error('Google sign-in is not connected yet. No account was created.');
+    }
+    const { error } = await signInWithGoogle(window.location.origin);
+    if (error) throw new Error(describeAuthError(error.message));
+    // The browser leaves for Google; the session is restored by the listener when it returns.
+    return { status: 'redirecting' };
+  }, []);
+
+  const handleLogout = useCallback(async () => {
+    if (!isSupabaseAuthConfigured) {
+      setUserProfile(StorageService.logoutUser());
+      return;
+    }
+    try {
+      await signOutSupabase();
+    } catch (e) {
+      console.error('Sign-out request failed; signing out locally', e);
+    }
+    setUserProfile((prev) => {
+      const next = signedOutProfile(prev);
+      StorageService.saveProfileLocalOnly(next);
+      return next;
+    });
   }, []);
 
   // Persist Profile Updates
   const updateProfile = useCallback((updated: Partial<UserProfile>) => {
     setUserProfile((prev) => {
       const next = { ...prev, ...updated };
-      StorageService.saveProfile(next);
+      persistProfile(next);
       return next;
     });
   }, []);
@@ -135,7 +248,7 @@ export function useAppViewModel() {
         ? prev.savedMatches.filter((id) => id !== matchId)
         : [...prev.savedMatches, matchId];
       const next = { ...prev, savedMatches: nextSaved };
-      StorageService.saveProfile(next);
+      persistProfile(next);
       return next;
     });
   }, []);
@@ -150,7 +263,7 @@ export function useAppViewModel() {
 
       const nextVotes = { ...existingVotes, [matchId]: choice };
       const nextProfile = { ...prevProfile, userVotes: nextVotes };
-      StorageService.saveProfile(nextProfile);
+      persistProfile(nextProfile);
 
       // Update match vote counts
       setMatches((prevMatches) =>
@@ -189,7 +302,7 @@ export function useAppViewModel() {
         ? prev.savedArticles.filter((id) => id !== articleId)
         : [...prev.savedArticles, articleId];
       const next = { ...prev, savedArticles: nextSaved };
-      StorageService.saveProfile(next);
+      persistProfile(next);
       return next;
     });
   }, []);
@@ -257,7 +370,9 @@ export function useAppViewModel() {
     updateProfile,
     handleRegister,
     handleLogin,
+    handleGoogleSignIn,
     handleLogout,
+    authConfigured: isSupabaseAuthConfigured,
     appSettings,
     updateSettings,
     toggleSaveMatch,

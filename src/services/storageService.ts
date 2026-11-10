@@ -1,4 +1,4 @@
-import { UserProfile, AppSettings } from '../types';
+import type { UserProfile, AppSettings } from '../types';
 
 const PROFILE_KEY = 'sportslab_africa_user_profile_v1';
 const SETTINGS_KEY = 'sportslab_africa_app_settings_v1';
@@ -77,6 +77,37 @@ export const StorageService = {
       }
     } catch (e) {
       console.error('Failed to save profile to localStorage', e);
+    }
+  },
+
+  /**
+   * Saves the profile for server-backed accounts. Passwords are never written and the
+   * local prototype user directory is not touched.
+   */
+  saveProfileLocalOnly(profile: UserProfile): void {
+    try {
+      const { password: _password, ...safeProfile } = profile;
+      localStorage.setItem(PROFILE_KEY, JSON.stringify(safeProfile));
+    } catch (e) {
+      console.error('Failed to save profile to localStorage', e);
+    }
+  },
+
+  /**
+   * Removes passwords left behind by the prototype login from browser storage.
+   * Used once a trusted identity provider is configured. Profiles and bookmarks are kept.
+   */
+  stripStoredPasswords(): void {
+    try {
+      for (const key of [PROFILE_KEY, USERS_KEY]) {
+        const stored = localStorage.getItem(key);
+        if (!stored) continue;
+        const parsed = JSON.parse(stored);
+        const strip = ({ password: _password, ...rest }: UserProfile) => rest;
+        localStorage.setItem(key, JSON.stringify(Array.isArray(parsed) ? parsed.map(strip) : strip(parsed)));
+      }
+    } catch (e) {
+      console.error('Failed to clear stored passwords', e);
     }
   },
 
