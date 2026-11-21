@@ -1,21 +1,28 @@
+import { lazy, Suspense } from 'react';
 import { useAppViewModel } from './viewmodels/useAppViewModel';
 import { SplashScreen } from './components/SplashScreen';
 import { HeaderBar } from './components/HeaderBar';
 import { BottomNav } from './components/BottomNav';
 import { HomeScreen } from './components/HomeScreen';
-import { MatchesScreen } from './components/MatchesScreen';
-import { CompetitionsScreen } from './components/CompetitionsScreen';
-import { TeamsScreen } from './components/TeamsScreen';
-import { TravelScreen } from './components/TravelScreen';
-import { NewsScreen } from './components/NewsScreen';
-import { StadiumsScreen } from './components/StadiumsScreen';
-import { HistoryScreen } from './components/HistoryScreen';
-import { ProfileScreen } from './components/ProfileScreen';
-import { SettingsScreen } from './components/SettingsScreen';
-import { ApkDownloadModal } from './components/ApkDownloadModal';
-import { TeamDetailModal } from './components/TeamDetailModal';
-import { MatchDetailModal } from './components/MatchDetailModal';
-import { ArticleDetailModal } from './components/ArticleDetailModal';
+
+// Screens and modals load on demand to keep the initial bundle small.
+const MatchesScreen = lazy(() => import('./components/MatchesScreen').then((m) => ({ default: m.MatchesScreen })));
+const CompetitionsScreen = lazy(() => import('./components/CompetitionsScreen').then((m) => ({ default: m.CompetitionsScreen })));
+const TeamsScreen = lazy(() => import('./components/TeamsScreen').then((m) => ({ default: m.TeamsScreen })));
+const TravelScreen = lazy(() => import('./components/TravelScreen').then((m) => ({ default: m.TravelScreen })));
+const NewsScreen = lazy(() => import('./components/NewsScreen').then((m) => ({ default: m.NewsScreen })));
+const StadiumsScreen = lazy(() => import('./components/StadiumsScreen').then((m) => ({ default: m.StadiumsScreen })));
+const HistoryScreen = lazy(() => import('./components/HistoryScreen').then((m) => ({ default: m.HistoryScreen })));
+const ProfileScreen = lazy(() => import('./components/ProfileScreen').then((m) => ({ default: m.ProfileScreen })));
+const SettingsScreen = lazy(() => import('./components/SettingsScreen').then((m) => ({ default: m.SettingsScreen })));
+const ApkDownloadModal = lazy(() => import('./components/ApkDownloadModal').then((m) => ({ default: m.ApkDownloadModal })));
+const TeamDetailModal = lazy(() => import('./components/TeamDetailModal').then((m) => ({ default: m.TeamDetailModal })));
+const MatchDetailModal = lazy(() => import('./components/MatchDetailModal').then((m) => ({ default: m.MatchDetailModal })));
+const ArticleDetailModal = lazy(() => import('./components/ArticleDetailModal').then((m) => ({ default: m.ArticleDetailModal })));
+
+const ScreenFallback = () => (
+  <div role="status" aria-live="polite" className="py-10 text-center text-xs font-medium text-slate-500 dark:text-slate-400">Loading…</div>
+);
 
 export default function App() {
   const vm = useAppViewModel();
@@ -38,6 +45,7 @@ export default function App() {
               {vm.liveApiConnection === 'not-configured' && <p className="mt-1">Backend is reachable, but verified live data is not configured. Fixtures and scores remain preview data.</p>}
               {vm.liveApiConnection === 'unreachable' && <p className="mt-1">Sports backend is not reachable from this preview. Fixtures and scores remain preview data.</p>}
             </div>
+            <Suspense fallback={<ScreenFallback />}>
             {vm.activeTab === 'home' && <HomeScreen userProfile={vm.userProfile} featuredMatch={vm.matches[0]} upcomingMatches={vm.matches.filter((m) => m.status === 'upcoming')} latestNews={vm.news} onSelectTab={vm.setActiveTab} onSelectMatch={vm.setSelectedMatch} onSelectArticle={vm.setSelectedArticle} onSelectTeamByName={handleSelectTeamByName} />}
             {vm.activeTab === 'matches' && <MatchesScreen matches={vm.filteredMatches} liveFootballMatches={vm.liveFootballFeed.matches} liveFootballFeedState={vm.liveFootballFeed.state} liveFootballFeedMessage={vm.liveFootballFeed.message} liveFootballFeedFetchedAt={vm.liveFootballFeed.fetchedAt} teams={vm.teams} userProfile={vm.userProfile} selectedGroup={vm.selectedMatchGroup} onSelectGroup={vm.setSelectedMatchGroup} savedMatches={vm.userProfile.savedMatches} onToggleSaveMatch={vm.toggleSaveMatch} selectedMatch={vm.selectedMatch} onSelectMatch={vm.setSelectedMatch} onSelectTeamByName={handleSelectTeamByName} onCastVote={vm.castMatchVote} />}
             {vm.activeTab === 'competitions' && <CompetitionsScreen onSelectTab={vm.setActiveTab} />}
@@ -48,14 +56,17 @@ export default function App() {
             {vm.activeTab === 'history' && <HistoryScreen onSelectTab={vm.setActiveTab} />}
             {vm.activeTab === 'profile' && <ProfileScreen userProfile={vm.userProfile} onUpdateProfile={vm.updateProfile} onRegister={vm.handleRegister} onLogin={vm.handleLogin} onLogout={vm.handleLogout} teams={vm.teams} matches={vm.matches} news={vm.news} onSelectMatch={vm.setSelectedMatch} onSelectArticle={vm.setSelectedArticle} onToggleSaveMatch={vm.toggleSaveMatch} onToggleSaveArticle={vm.toggleSaveArticle} onSelectTab={vm.setActiveTab} />}
             {vm.activeTab === 'settings' && <SettingsScreen settings={vm.appSettings} onUpdateSettings={vm.updateSettings} onSelectTab={vm.setActiveTab} />}
+            </Suspense>
           </main>
           <BottomNav activeTab={vm.activeTab} onSelectTab={vm.setActiveTab} />
         </div>
       )}
+      <Suspense fallback={null}>
       {vm.showApkModal && <ApkDownloadModal onClose={() => vm.setShowApkModal(false)} />}
       {vm.selectedTeam && <TeamDetailModal team={vm.selectedTeam} allMatches={vm.matches} onClose={() => vm.setSelectedTeam(null)} onSelectMatch={(m) => { vm.setSelectedTeam(null); vm.setSelectedMatch(m); }} />}
       {vm.selectedMatch && <MatchDetailModal match={vm.selectedMatch} userProfile={vm.userProfile} teams={vm.teams} onClose={() => vm.setSelectedMatch(null)} onCastVote={vm.castMatchVote} onToggleSave={vm.toggleSaveMatch} onSelectTeamByName={handleSelectTeamByName} />}
       {vm.selectedArticle && <ArticleDetailModal article={vm.selectedArticle} onClose={() => vm.setSelectedArticle(null)} isSaved={vm.userProfile.savedArticles?.includes(vm.selectedArticle.id)} onToggleSave={vm.toggleSaveArticle} />}
+      </Suspense>
     </div>
   );
 }
